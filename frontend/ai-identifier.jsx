@@ -27,7 +27,6 @@ const SCAN_CATEGORIES = [
   { icon: "🎮", label: "Other" },
 ];
 
-// ── ERROR MESSAGES ─────────────────────────────────────────
 const ERROR_MESSAGES = {
   network: "Network error — please check your connection and try again.",
   rateLimit: "Too many requests — please wait a moment and try again.",
@@ -35,6 +34,15 @@ const ERROR_MESSAGES = {
   parse: "AI returned an unexpected response — please try again.",
   lowConfidence: "Image unclear — please upload a clearer photo showing the brand or product.",
   unknown: "Something went wrong — please try again.",
+};
+
+// ── PHOTO TIPS by category ─────────────────────────────────
+const PHOTO_TIPS = {
+  Bags: ["Show the brand logo clearly", "Photograph the hardware / zipper", "Include the interior tag or serial number"],
+  Sneakers: ["Show the side profile", "Photograph the tongue label", "Include the sole / outsole"],
+  Watches: ["Show the dial face clearly", "Photograph the crown and case side", "Include the caseback if possible"],
+  Electronics: ["Show the model label / sticker", "Photograph the ports / connectors", "Include the serial number area"],
+  default: ["Show the brand logo clearly", "Use good lighting", "Avoid blurry or cropped images"],
 };
 
 // ── MAIN APP ───────────────────────────────────────────────
@@ -47,7 +55,8 @@ export default function ShowBrand() {
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [error, setError] = useState(null);
-  const [errorType, setErrorType] = useState(null); // 'low_confidence' | 'api' | 'parse'
+  const [errorType, setErrorType] = useState(null);
+  const [feedback, setFeedback] = useState(null); // 'correct' | 'wrong' | 'unsure'
   const fileRef = useRef();
 
   // ── FILE PICK ──
@@ -64,6 +73,7 @@ export default function ShowBrand() {
       setScreen("scanning");
       setError(null);
       setErrorType(null);
+      setFeedback(null);
       runAnalysis(base64, mediaType);
     };
     reader.readAsDataURL(file);
@@ -128,7 +138,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         throw { type: "network" };
       }
 
-      // ── HTTP Error handling ──
       if (!response.ok) {
         if (response.status === 429) throw { type: "rateLimit" };
         if (response.status === 401 || response.status === 403) throw { type: "apiKey" };
@@ -141,7 +150,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       const data = await response.json();
       const raw = data.content?.find(b => b.type === "text")?.text || "";
 
-      // ── JSON Parse ──
       let parsed;
       try {
         const clean = raw.replace(/```json|```/g, "").trim();
@@ -150,7 +158,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         throw { type: "parse" };
       }
 
-      // ── Low confidence check ──
       if (!parsed.confidence || parsed.confidence < 30) {
         throw { type: "lowConfidence" };
       }
@@ -170,10 +177,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       setAnalyzing(false);
     }
   };
-
-  // ────────────────────────────────────────────────────────
-  // SCREENS
-  // ────────────────────────────────────────────────────────
 
   // ── HOME ──
   if (screen === "home") return (
@@ -197,25 +200,17 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       </div>
 
       <div style={{ padding: "28px 24px" }}>
-        <div
-          onClick={() => fileRef.current.click()}
-          style={{
-            background: `linear-gradient(145deg, ${C.card} 0%, #1E1A14 100%)`,
-            border: `1.5px dashed ${C.accent}66`,
-            borderRadius: 24,
-            padding: "48px 20px",
-            textAlign: "center",
-            cursor: "pointer",
-            position: "relative",
-            overflow: "hidden",
-          }}
-        >
+        <div onClick={() => fileRef.current.click()} style={{
+          background: `linear-gradient(145deg, ${C.card} 0%, #1E1A14 100%)`,
+          border: `1.5px dashed ${C.accent}66`,
+          borderRadius: 24, padding: "48px 20px",
+          textAlign: "center", cursor: "pointer",
+          position: "relative", overflow: "hidden",
+        }}>
           {["topLeft", "topRight", "bottomLeft", "bottomRight"].map((pos) => (
             <div key={pos} style={{
-              position: "absolute",
-              width: 20, height: 20,
-              borderColor: C.accent,
-              borderStyle: "solid",
+              position: "absolute", width: 20, height: 20,
+              borderColor: C.accent, borderStyle: "solid",
               borderWidth: pos.includes("top") ? "2px 0 0" : "0 0 2px",
               ...(pos.includes("Left") ? { left: 16, borderLeftWidth: 2, borderRightWidth: 0 } : { right: 16, borderRightWidth: 2, borderLeftWidth: 0 }),
               ...(pos.includes("top") ? { top: 16 } : { bottom: 16 }),
@@ -293,12 +288,7 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         {imagePreview && (
           <div style={{ width: 200, height: 200, borderRadius: 24, overflow: "hidden", marginBottom: 32, border: `2px solid ${C.accent}66`, position: "relative" }}>
             <img src={imagePreview} alt="scan" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            <div style={{
-              position: "absolute", top: 0, left: 0, right: 0, height: 2,
-              background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`,
-              animation: "scanLine 1.5s ease-in-out infinite",
-              boxShadow: `0 0 12px ${C.accent}`,
-            }} />
+            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`, animation: "scanLine 1.5s ease-in-out infinite", boxShadow: `0 0 12px ${C.accent}` }} />
           </div>
         )}
         <style>{`
@@ -338,12 +328,16 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
     const verdictColor = isSuspicious ? C.red : isAuthentic ? C.green : C.amber;
     const verdictBg = isSuspicious ? C.redDim : isAuthentic ? C.greenDim : "#FBBF2422";
     const confidencePct = result.confidence ?? 0;
+    const isLowConfidence = confidencePct >= 30 && confidencePct < 65;
+    const tips = PHOTO_TIPS[result.category] || PHOTO_TIPS.default;
 
     return (
       <Shell>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
           onChange={e => handleFile(e.target.files[0])} />
         <div style={{ padding: "0 0 40px" }}>
+
+          {/* Image + Verdict Header */}
           <div style={{ position: "relative", height: 260, overflow: "hidden" }}>
             {imagePreview && (
               <img src={imagePreview} alt="result" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "brightness(0.45)" }} />
@@ -373,21 +367,47 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
           </div>
 
           <div style={{ padding: "20px 20px 0" }}>
+
+            {/* AI Confidence */}
             <div style={{ background: C.card, borderRadius: 18, padding: 18, border: `1px solid ${C.border}`, marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                 <span style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>AI Confidence</span>
-                <span style={{ fontSize: 18, fontWeight: 900, color: C.accent }}>{confidencePct}%</span>
+                <span style={{ fontSize: 18, fontWeight: 900, color: isLowConfidence ? C.amber : C.accent }}>{confidencePct}%</span>
               </div>
               <div style={{ background: C.surface, borderRadius: 20, height: 8, overflow: "hidden" }}>
-                <div style={{ height: "100%", background: `linear-gradient(90deg, ${C.accent}, #E8C87A)`, borderRadius: 20, width: `${confidencePct}%` }} />
+                <div style={{ height: "100%", background: isLowConfidence ? `linear-gradient(90deg, ${C.amber}, #F8C94A)` : `linear-gradient(90deg, ${C.accent}, #E8C87A)`, borderRadius: 20, width: `${confidencePct}%` }} />
               </div>
             </div>
 
+            {/* Low confidence — better photo suggestion */}
+            {isLowConfidence && (
+              <div style={{ background: "#1A1400", border: `1px solid ${C.amber}44`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.amber, marginBottom: 8 }}>
+                  📷 Better photo = better result
+                </div>
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>
+                  Confidence is low. Try uploading another photo:
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                  {tips.map((tip, i) => (
+                    <div key={i} style={{ fontSize: 12, color: C.text, display: "flex", gap: 8 }}>
+                      <span style={{ color: C.amber, flexShrink: 0 }}>→</span> {tip}
+                    </div>
+                  ))}
+                </div>
+                <button onClick={() => fileRef.current.click()} style={{ marginTop: 12, width: "100%", background: C.amber + "22", border: `1px solid ${C.amber}44`, color: C.amber, borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  📸 Upload Better Photo
+                </button>
+              </div>
+            )}
+
+            {/* Stats Row */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
               <InfoCard label="Retail Price" value={result.estimated_retail || "N/A"} color={C.text} />
               <InfoCard label="Resell Value" value={result.estimated_resell || "N/A"} color={C.accent} />
             </div>
 
+            {/* Authenticity */}
             <div style={{ background: verdictBg, border: `1px solid ${verdictColor}44`, borderRadius: 18, padding: 18, marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>Authenticity Risk</div>
@@ -418,6 +438,7 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
               )}
             </div>
 
+            {/* Condition */}
             {result.condition_hints && (
               <div style={{ background: C.card, borderRadius: 14, padding: 16, marginBottom: 14, border: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Condition Assessment</div>
@@ -425,13 +446,45 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
               </div>
             )}
 
+            {/* Selling Tip */}
             {result.tips && (
-              <div style={{ background: "#1A1F1A", border: `1px solid ${C.green}33`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
+              <div style={{ background: "#1A1F1A", border: `1px solid ${C.green}33`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
                 <div style={{ fontSize: 12, color: C.green, fontWeight: 700, marginBottom: 4 }}>💡 Selling Tip</div>
                 <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6 }}>{result.tips}</div>
               </div>
             )}
 
+            {/* ── USER FEEDBACK ── */}
+            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 12, textAlign: "center" }}>
+                Was this result accurate?
+              </div>
+              {feedback ? (
+                <div style={{ textAlign: "center", fontSize: 13, color: C.muted, padding: "8px 0" }}>
+                  {feedback === "correct" && <span style={{ color: C.green }}>✅ Thanks for the feedback!</span>}
+                  {feedback === "wrong" && <span style={{ color: C.red }}>❌ Thanks — we'll use this to improve.</span>}
+                  {feedback === "unsure" && <span style={{ color: C.amber }}>🤔 Got it — noted for review.</span>}
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 8 }}>
+                  {[
+                    { key: "correct", label: "✅ Correct", color: C.green },
+                    { key: "wrong", label: "❌ Wrong", color: C.red },
+                    { key: "unsure", label: "🤔 Unsure", color: C.amber },
+                  ].map(({ key, label, color }) => (
+                    <button
+                      key={key}
+                      onClick={() => setFeedback(key)}
+                      style={{ flex: 1, background: color + "18", border: `1px solid ${color}44`, color, borderRadius: 10, padding: "10px 4px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => fileRef.current.click()} style={{ flex: 1, background: C.accent, border: "none", color: "#000", borderRadius: 14, padding: 16, fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
                 📸 Scan Another
@@ -490,14 +543,9 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
 function Shell({ children }) {
   return (
     <div style={{
-      background: C.bg,
-      minHeight: "100vh",
-      maxWidth: 430,
-      margin: "0 auto",
+      background: C.bg, minHeight: "100vh", maxWidth: 430, margin: "0 auto",
       fontFamily: "'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif",
-      color: C.text,
-      overflowX: "hidden",
-      position: "relative",
+      color: C.text, overflowX: "hidden", position: "relative",
     }}>
       {children}
     </div>
