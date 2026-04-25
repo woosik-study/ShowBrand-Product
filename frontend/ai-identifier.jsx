@@ -6,7 +6,7 @@ const C = {
   surface: "#101013",
   card: "#18181D",
   border: "#252530",
-  accent: "#C8A96E",   // warm gold — luxury feel
+  accent: "#C8A96E",
   accentDim: "#C8A96E33",
   green: "#4ADE80",
   greenDim: "#4ADE8022",
@@ -27,22 +27,32 @@ const SCAN_CATEGORIES = [
   { icon: "🎮", label: "Other" },
 ];
 
+// ── ERROR MESSAGES ─────────────────────────────────────────
+const ERROR_MESSAGES = {
+  network: "Network error — please check your connection and try again.",
+  rateLimit: "Too many requests — please wait a moment and try again.",
+  apiKey: "API key issue — please contact support.",
+  parse: "AI returned an unexpected response — please try again.",
+  lowConfidence: "Image unclear — please upload a clearer photo showing the brand or product.",
+  unknown: "Something went wrong — please try again.",
+};
+
 // ── MAIN APP ───────────────────────────────────────────────
 export default function ShowBrand() {
-  const [screen, setScreen] = useState("home"); // home | scanning | result | history
-  const [image, setImage] = useState(null);       // base64 string
+  const [screen, setScreen] = useState("home");
+  const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [error, setError] = useState(null);
+  const [errorType, setErrorType] = useState(null); // 'low_confidence' | 'api' | 'parse'
   const fileRef = useRef();
 
   // ── FILE PICK ──
   const handleFile = useCallback((file) => {
     if (!file) return;
-    // Only allow supported image types
     const supported = ["image/jpeg", "image/png", "image/webp", "image/gif"];
     const mediaType = supported.includes(file.type) ? file.type : "image/jpeg";
     const reader = new FileReader();
@@ -52,6 +62,8 @@ export default function ShowBrand() {
       setImage(base64);
       setImagePreview(dataUrl);
       setScreen("scanning");
+      setError(null);
+      setErrorType(null);
       runAnalysis(base64, mediaType);
     };
     reader.readAsDataURL(file);
@@ -60,31 +72,31 @@ export default function ShowBrand() {
   // ── AI ANALYSIS ──
   const runAnalysis = async (base64, mediaType = "image/jpeg") => {
     setAnalyzing(true);
-    setError(null);
     setScanProgress(0);
 
-    // animate progress bar
     const timer = setInterval(() => {
       setScanProgress(p => (p >= 88 ? 88 : p + Math.random() * 12));
     }, 400);
 
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
-          messages: [{
-            role: "user",
-            content: [
-              {
-                type: "image",
-                source: { type: "base64", media_type: mediaType, data: base64 }
-              },
-              {
-                type: "text",
-                text: `You are an expert product identifier specializing in luxury goods, sneakers, watches, electronics, and fashion.
+      let response;
+      try {
+        response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 1000,
+            messages: [{
+              role: "user",
+              content: [
+                {
+                  type: "image",
+                  source: { type: "base64", media_type: mediaType, data: base64 }
+                },
+                {
+                  type: "text",
+                  text: `You are an expert product identifier specializing in luxury goods, sneakers, watches, electronics, and fashion.
 
 Analyze this image and respond ONLY with a JSON object (no markdown, no backticks):
 
@@ -107,11 +119,21 @@ Analyze this image and respond ONLY with a JSON object (no markdown, no backtick
 Important: authentic_verdict must be one of: Low Risk, Medium Risk, High Risk, Cannot Determine.
 If confidence is below 30, set all fields to Unknown and explain in authentic_reasons.
 If the image is unclear or not a product, still return valid JSON with Unknown values.`
-              }
-            ]
-          }]
-        })
-      });
+                }
+              ]
+            }]
+          })
+        });
+      } catch {
+        throw { type: "network" };
+      }
+
+      // ── HTTP Error handling ──
+      if (!response.ok) {
+        if (response.status === 429) throw { type: "rateLimit" };
+        if (response.status === 401 || response.status === 403) throw { type: "apiKey" };
+        throw { type: "unknown" };
+      }
 
       clearInterval(timer);
       setScanProgress(100);
@@ -119,24 +141,30 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       const data = await response.json();
       const raw = data.content?.find(b => b.type === "text")?.text || "";
 
+      // ── JSON Parse ──
       let parsed;
       try {
-        // strip possible markdown fences
         const clean = raw.replace(/```json|```/g, "").trim();
         parsed = JSON.parse(clean);
       } catch {
-        throw new Error("Failed to parse AI response. Please try again.");
+        throw { type: "parse" };
+      }
+
+      // ── Low confidence check ──
+      if (!parsed.confidence || parsed.confidence < 30) {
+        throw { type: "lowConfidence" };
       }
 
       setResult(parsed);
       setHistory(h => [{ ...parsed, imagePreview, id: Date.now() }, ...h.slice(0, 9)]);
-
       await new Promise(r => setTimeout(r, 600));
       setScreen("result");
 
     } catch (err) {
       clearInterval(timer);
-      setError(err.message || "An error occurred during analysis. Please try again.");
+      const type = err?.type || "unknown";
+      setErrorType(type);
+      setError(ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown);
       setScreen("home");
     } finally {
       setAnalyzing(false);
@@ -153,7 +181,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
         onChange={e => handleFile(e.target.files[0])} />
 
-      {/* Header */}
       <div style={{ padding: "44px 24px 0", textAlign: "center" }}>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: C.accentDim, border: `1px solid ${C.accent}44`, borderRadius: 30, padding: "6px 16px", marginBottom: 24 }}>
           <span style={{ fontSize: 11, color: C.accent, fontWeight: 700, letterSpacing: 2 }}>AI POWERED</span>
@@ -169,7 +196,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         </p>
       </div>
 
-      {/* Upload Zone */}
       <div style={{ padding: "28px 24px" }}>
         <div
           onClick={() => fileRef.current.click()}
@@ -184,7 +210,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
             overflow: "hidden",
           }}
         >
-          {/* Corner accents */}
           {["topLeft", "topRight", "bottomLeft", "bottomRight"].map((pos) => (
             <div key={pos} style={{
               position: "absolute",
@@ -196,7 +221,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
               ...(pos.includes("top") ? { top: 16 } : { bottom: 16 }),
             }} />
           ))}
-
           <div style={{ fontSize: 52, marginBottom: 14 }}>📸</div>
           <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Upload a Photo</div>
           <div style={{ fontSize: 13, color: C.muted }}>Bags, sneakers, watches, electronics & more</div>
@@ -206,7 +230,21 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         </div>
       </div>
 
-      {/* Category Pills */}
+      {/* Error Card */}
+      {error && (
+        <div style={{ margin: "0 24px 20px", background: errorType === "lowConfidence" ? "#1A1500" : C.redDim, border: `1px solid ${errorType === "lowConfidence" ? C.amber : C.red}44`, borderRadius: 14, padding: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: errorType === "lowConfidence" ? C.amber : C.red, marginBottom: 6 }}>
+            {errorType === "lowConfidence" ? "📷 Better photo needed" : "⚠️ Error"}
+          </div>
+          <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{error}</div>
+          {errorType === "lowConfidence" && (
+            <div style={{ marginTop: 10, fontSize: 12, color: C.muted }}>
+              Tips: show the logo clearly · use good lighting · avoid blurry or cropped images
+            </div>
+          )}
+        </div>
+      )}
+
       <div style={{ padding: "0 24px 20px" }}>
         <div style={{ fontSize: 12, color: C.muted, marginBottom: 12, fontWeight: 600, letterSpacing: 1 }}>SUPPORTED CATEGORIES</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -219,16 +257,15 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         </div>
       </div>
 
-      {/* How it works */}
       <div style={{ padding: "0 24px 16px" }}>
         <div style={{ background: C.card, borderRadius: 18, padding: 20, border: `1px solid ${C.border}` }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14, color: C.accent }}>HOW IT WORKS</div>
           {[
-            ["01", "📸", "Upload a Photo", "Show the logo, tag, or full item clearly for best results"],
-            ["02", "🤖", "AI Analysis", "Brand, model name, and year are identified automatically"],
-            ["03", "✅", "Authenticity Check", "Fake detection points are flagged for you"],
-          ].map(([num, icon, title, desc]) => (
-            <div key={num} style={{ display: "flex", gap: 14, marginBottom: 14, alignItems: "flex-start" }}>
+            ["📸", "Upload a Photo", "Show the logo, tag, or full item clearly for best results"],
+            ["🤖", "AI Analysis", "Brand, model name, and year are identified automatically"],
+            ["✅", "Risk Assessment", "Visual risk signals are flagged — not professional authentication"],
+          ].map(([icon, title, desc]) => (
+            <div key={title} style={{ display: "flex", gap: 14, marginBottom: 14, alignItems: "flex-start" }}>
               <div style={{ fontSize: 20, flexShrink: 0 }}>{icon}</div>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{title}</div>
@@ -239,18 +276,11 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
         </div>
       </div>
 
-      {/* History Button */}
       {history.length > 0 && (
         <div style={{ padding: "0 24px 32px" }}>
           <button onClick={() => setScreen("history")} style={{ width: "100%", background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 14, padding: 16, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <span>🕐</span> Scan History ({history.length})
           </button>
-        </div>
-      )}
-
-      {error && (
-        <div style={{ margin: "0 24px 24px", background: C.redDim, border: `1px solid ${C.red}44`, borderRadius: 14, padding: 16, color: C.red, fontSize: 14 }}>
-          ⚠️ {error}
         </div>
       )}
     </Shell>
@@ -260,12 +290,9 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
   if (screen === "scanning") return (
     <Shell>
       <div style={{ padding: "60px 24px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: "100vh", justifyContent: "center" }}>
-
-        {/* Image Preview */}
         {imagePreview && (
           <div style={{ width: 200, height: 200, borderRadius: 24, overflow: "hidden", marginBottom: 32, border: `2px solid ${C.accent}66`, position: "relative" }}>
             <img src={imagePreview} alt="scan" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            {/* Scan line animation */}
             <div style={{
               position: "absolute", top: 0, left: 0, right: 0, height: 2,
               background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`,
@@ -274,36 +301,19 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
             }} />
           </div>
         )}
-
         <style>{`
-          @keyframes scanLine {
-            0% { top: 0%; }
-            50% { top: 98%; }
-            100% { top: 0%; }
-          }
-          @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-          }
-          @keyframes spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-          }
+          @keyframes scanLine { 0% { top: 0%; } 50% { top: 98%; } 100% { top: 0%; } }
+          @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         `}</style>
-
         <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: -1, marginBottom: 4 }}>
           <span style={{ color: C.accent }}>Show</span>Brand
         </div>
         <div style={{ fontSize: 13, color: C.accent, fontWeight: 700, letterSpacing: 2, marginBottom: 12, animation: "pulse 1.5s ease-in-out infinite" }}>
           ANALYZING...
         </div>
-
-        {/* Progress Bar */}
         <div style={{ width: "100%", maxWidth: 280, background: C.card, borderRadius: 20, height: 6, overflow: "hidden", marginBottom: 24 }}>
           <div style={{ height: "100%", background: `linear-gradient(90deg, ${C.accent}, #E8C87A)`, borderRadius: 20, width: `${scanProgress}%`, transition: "width 0.4s ease" }} />
         </div>
-
-        {/* Steps */}
         {[
           [scanProgress > 10, "Recognizing brand logo"],
           [scanProgress > 35, "Searching model database"],
@@ -333,28 +343,20 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       <Shell>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
           onChange={e => handleFile(e.target.files[0])} />
-
         <div style={{ padding: "0 0 40px" }}>
-          {/* Image + Verdict Header */}
           <div style={{ position: "relative", height: 260, overflow: "hidden" }}>
             {imagePreview && (
               <img src={imagePreview} alt="result" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "brightness(0.45)" }} />
             )}
             <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 20%, #08080A 100%)" }} />
-
-            {/* Back */}
             <button onClick={() => setScreen("home")} style={{ position: "absolute", top: 16, left: 16, background: "#00000066", border: "none", color: C.text, borderRadius: 20, padding: "8px 14px", cursor: "pointer", fontSize: 13 }}>
               ← Scan Again
             </button>
-
-            {/* Verdict badge */}
             <div style={{ position: "absolute", top: 16, right: 16, background: verdictBg, border: `1px solid ${verdictColor}66`, borderRadius: 20, padding: "6px 14px" }}>
               <span style={{ fontSize: 12, color: verdictColor, fontWeight: 700 }}>
                 {isSuspicious ? "⚠️ High Risk" : isAuthentic ? "✅ Low Risk" : "🔍 Cannot Determine"}
               </span>
             </div>
-
-            {/* Brand + Model */}
             <div style={{ position: "absolute", bottom: 24, left: 24, right: 24 }}>
               <div style={{ fontSize: 12, color: C.accent, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
                 {result.brand?.toUpperCase() || "UNKNOWN BRAND"}
@@ -370,7 +372,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
             </div>
           </div>
 
-          {/* AI Confidence */}
           <div style={{ padding: "20px 20px 0" }}>
             <div style={{ background: C.card, borderRadius: 18, padding: 18, border: `1px solid ${C.border}`, marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
@@ -382,22 +383,19 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
               </div>
             </div>
 
-            {/* Stats Row */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
               <InfoCard label="Retail Price" value={result.estimated_retail || "N/A"} color={C.text} />
               <InfoCard label="Resell Value" value={result.estimated_resell || "N/A"} color={C.accent} />
             </div>
 
-            {/* Authenticity */}
             <div style={{ background: verdictBg, border: `1px solid ${verdictColor}44`, borderRadius: 18, padding: 18, marginBottom: 14 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>Authenticity Result</div>
+                <div style={{ fontSize: 14, fontWeight: 700 }}>Authenticity Risk</div>
                 <div style={{ fontSize: 20, fontWeight: 900, color: verdictColor }}>{result.authentic_score}/100</div>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: verdictColor, marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: verdictColor, marginBottom: 6 }}>
                 {result.authentic_verdict || "Cannot Determine"}
               </div>
-              {/* Disclaimer */}
               <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, fontStyle: "italic" }}>
                 ⚠️ AI visual assessment only — not professional authentication
               </div>
@@ -408,7 +406,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
                   </div>
                 ))}
               </div>
-
               {(result.suspicious_points || []).length > 0 && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
                   <div style={{ fontSize: 12, color: C.red, fontWeight: 700, marginBottom: 6 }}>⚠️ Red Flags</div>
@@ -421,7 +418,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
               )}
             </div>
 
-            {/* Condition + Tip */}
             {result.condition_hints && (
               <div style={{ background: C.card, borderRadius: 14, padding: 16, marginBottom: 14, border: `1px solid ${C.border}` }}>
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Condition Assessment</div>
@@ -436,7 +432,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
               </div>
             )}
 
-            {/* Actions */}
             <div style={{ display: "flex", gap: 10 }}>
               <button onClick={() => fileRef.current.click()} style={{ flex: 1, background: C.accent, border: "none", color: "#000", borderRadius: 14, padding: 16, fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
                 📸 Scan Another
@@ -457,10 +452,10 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       <div style={{ padding: "50px 20px 40px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
           <button onClick={() => setScreen("home")} style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 20, padding: "8px 14px", cursor: "pointer", fontSize: 13 }}>←</button>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>분석 기록</div>
+          <div style={{ fontSize: 20, fontWeight: 800 }}>Scan History</div>
         </div>
         {history.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px 0", color: C.muted }}>아직 분석 기록이 없어요</div>
+          <div style={{ textAlign: "center", padding: "60px 0", color: C.muted }}>No scans yet</div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {history.map(h => {
@@ -492,7 +487,6 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
   return null;
 }
 
-// ── HELPER COMPONENTS ──────────────────────────────────────
 function Shell({ children }) {
   return (
     <div style={{
