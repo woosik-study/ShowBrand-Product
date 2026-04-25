@@ -2,20 +2,20 @@ import { useState, useRef, useCallback } from "react";
 
 // ── DESIGN TOKENS ──────────────────────────────────────────
 const C = {
-  bg:       "#08080A",
-  surface:  "#101013",
-  card:     "#18181D",
-  border:   "#252530",
-  accent:   "#C8A96E",   // warm gold — luxury feel
-  accentDim:"#C8A96E33",
-  green:    "#4ADE80",
+  bg: "#08080A",
+  surface: "#101013",
+  card: "#18181D",
+  border: "#252530",
+  accent: "#C8A96E",   // warm gold — luxury feel
+  accentDim: "#C8A96E33",
+  green: "#4ADE80",
   greenDim: "#4ADE8022",
-  red:      "#F87171",
-  redDim:   "#F8717122",
-  amber:    "#FBBF24",
-  text:     "#F2EFE8",
-  muted:    "#7A7A8C",
-  scan:     "#C8A96E",
+  red: "#F87171",
+  redDim: "#F8717122",
+  amber: "#FBBF24",
+  text: "#F2EFE8",
+  muted: "#7A7A8C",
+  scan: "#C8A96E",
 };
 
 const SCAN_CATEGORIES = [
@@ -42,6 +42,9 @@ export default function ShowBrand() {
   // ── FILE PICK ──
   const handleFile = useCallback((file) => {
     if (!file) return;
+    // Only allow supported image types
+    const supported = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    const mediaType = supported.includes(file.type) ? file.type : "image/jpeg";
     const reader = new FileReader();
     reader.onload = (e) => {
       const dataUrl = e.target.result;
@@ -49,13 +52,13 @@ export default function ShowBrand() {
       setImage(base64);
       setImagePreview(dataUrl);
       setScreen("scanning");
-      runAnalysis(base64);
+      runAnalysis(base64, mediaType);
     };
     reader.readAsDataURL(file);
   }, []);
 
   // ── AI ANALYSIS ──
-  const runAnalysis = async (base64) => {
+  const runAnalysis = async (base64, mediaType = "image/jpeg") => {
     setAnalyzing(true);
     setError(null);
     setScanProgress(0);
@@ -77,11 +80,11 @@ export default function ShowBrand() {
             content: [
               {
                 type: "image",
-                source: { type: "base64", media_type: "image/jpeg", data: base64 }
+                source: { type: "base64", media_type: mediaType, data: base64 }
               },
               {
                 type: "text",
-                text: `You are an expert authenticator and product identifier specializing in luxury goods, sneakers, watches, electronics, and fashion.
+                text: `You are an expert product identifier specializing in luxury goods, sneakers, watches, electronics, and fashion.
 
 Analyze this image and respond ONLY with a JSON object (no markdown, no backticks):
 
@@ -91,7 +94,7 @@ Analyze this image and respond ONLY with a JSON object (no markdown, no backtick
   "category": "one of: Bags, Sneakers, Watches, Electronics, Clothing, Other",
   "confidence": number 0-100,
   "authentic_score": number 0-100,
-  "authentic_verdict": "Likely Authentic or Likely Fake or Cannot Determine",
+  "authentic_verdict": "Low Risk or Medium Risk or High Risk or Cannot Determine",
   "authentic_reasons": ["reason1", "reason2", "reason3"],
   "suspicious_points": ["point1"] or [],
   "estimated_retail": "retail price range in USD",
@@ -101,7 +104,9 @@ Analyze this image and respond ONLY with a JSON object (no markdown, no backtick
   "tips": "one practical tip for selling this item"
 }
 
-If the image is unclear or not a product, still return valid JSON with Unknown values and explain in authentic_reasons.`
+Important: authentic_verdict must be one of: Low Risk, Medium Risk, High Risk, Cannot Determine.
+If confidence is below 30, set all fields to Unknown and explain in authentic_reasons.
+If the image is unclear or not a product, still return valid JSON with Unknown values.`
               }
             ]
           }]
@@ -180,7 +185,7 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
           }}
         >
           {/* Corner accents */}
-          {["topLeft","topRight","bottomLeft","bottomRight"].map((pos) => (
+          {["topLeft", "topRight", "bottomLeft", "bottomRight"].map((pos) => (
             <div key={pos} style={{
               position: "absolute",
               width: 20, height: 20,
@@ -345,7 +350,7 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
             {/* Verdict badge */}
             <div style={{ position: "absolute", top: 16, right: 16, background: verdictBg, border: `1px solid ${verdictColor}66`, borderRadius: 20, padding: "6px 14px" }}>
               <span style={{ fontSize: 12, color: verdictColor, fontWeight: 700 }}>
-                {isSuspicious ? "⚠️ Likely Fake" : isAuthentic ? "✅ Likely Authentic" : "🔍 Cannot Determine"}
+                {isSuspicious ? "⚠️ High Risk" : isAuthentic ? "✅ Low Risk" : "🔍 Cannot Determine"}
               </span>
             </div>
 
@@ -390,7 +395,11 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
                 <div style={{ fontSize: 20, fontWeight: 900, color: verdictColor }}>{result.authentic_score}/100</div>
               </div>
               <div style={{ fontSize: 13, fontWeight: 700, color: verdictColor, marginBottom: 10 }}>
-                {result.authentic_verdict}
+                {result.authentic_verdict || "Cannot Determine"}
+              </div>
+              {/* Disclaimer */}
+              <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, fontStyle: "italic" }}>
+                ⚠️ AI visual assessment only — not professional authentication
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
                 {(result.authentic_reasons || []).map((r, i) => (
