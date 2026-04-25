@@ -1,65 +1,83 @@
 import { useState, useRef, useCallback } from "react";
 
 // ── DESIGN TOKENS ──────────────────────────────────────────
-const C = {
-  bg: "#08080A",
-  surface: "#101013",
-  card: "#18181D",
-  border: "#252530",
-  accent: "#C8A96E",
-  accentDim: "#C8A96E33",
-  green: "#4ADE80",
-  greenDim: "#4ADE8022",
-  red: "#F87171",
-  redDim: "#F8717122",
-  amber: "#FBBF24",
-  text: "#F2EFE8",
-  muted: "#7A7A8C",
-  scan: "#C8A96E",
+const DARK = {
+  bg: "#0A0F1E",
+  surface: "#0D1426",
+  card: "#111827",
+  border: "#1E2D4A",
+  blue: "#3B82F6",
+  blueDim: "#3B82F620",
+  blueBright: "#60A5FA",
+  text: "#F0F4FF",
+  muted: "#6B7FA3",
+  white: "#FFFFFF",
 };
 
+const LIGHT = {
+  bg: "#F8F9FC",
+  surface: "#FFFFFF",
+  card: "#FFFFFF",
+  border: "#E5E9F2",
+  text: "#0F172A",
+  muted: "#64748B",
+  blue: "#2563EB",
+  blueDim: "#2563EB12",
+};
+
+// ── TRAFFIC LIGHT SYSTEM ───────────────────────────────────
+const SIGNAL = {
+  green: { color: "#16A34A", bg: "#F0FDF4", border: "#BBF7D0", dot: "#22C55E", label: "LOW RISK", emoji: "🟢" },
+  amber: { color: "#D97706", bg: "#FFFBEB", border: "#FDE68A", dot: "#F59E0B", label: "MEDIUM RISK", emoji: "🟡" },
+  red: { color: "#DC2626", bg: "#FEF2F2", border: "#FECACA", dot: "#EF4444", label: "HIGH RISK", emoji: "🔴" },
+  unknown: { color: "#64748B", bg: "#F8FAFC", border: "#E2E8F0", dot: "#94A3B8", label: "UNCLEAR", emoji: "⚪" },
+};
+
+function getSignal(score, verdict) {
+  if (verdict === "Cannot Determine") return SIGNAL.unknown;
+  if (score >= 65) return SIGNAL.green;
+  if (score >= 40) return SIGNAL.amber;
+  return SIGNAL.red;
+}
+
 const SCAN_CATEGORIES = [
-  { icon: "👜", label: "Bags & Luxury" },
+  { icon: "👜", label: "Bags" },
   { icon: "👟", label: "Sneakers" },
   { icon: "⌚", label: "Watches" },
   { icon: "📱", label: "Electronics" },
-  { icon: "👕", label: "Clothing & Fashion" },
+  { icon: "👕", label: "Clothing" },
   { icon: "🎮", label: "Other" },
 ];
 
 const ERROR_MESSAGES = {
-  network: "Network error — please check your connection and try again.",
-  rateLimit: "Too many requests — please wait a moment and try again.",
+  network: "Network error — check your connection and try again.",
+  rateLimit: "Too many requests — wait a moment and try again.",
   apiKey: "API key issue — please contact support.",
   parse: "AI returned an unexpected response — please try again.",
-  lowConfidence: "Image unclear — please upload a clearer photo showing the brand or product.",
+  lowConfidence: "Image too unclear — upload a clearer photo showing the brand.",
   unknown: "Something went wrong — please try again.",
 };
 
-// ── PHOTO TIPS by category ─────────────────────────────────
 const PHOTO_TIPS = {
-  Bags: ["Show the brand logo clearly", "Photograph the hardware / zipper", "Include the interior tag or serial number"],
+  Bags: ["Show the brand logo clearly", "Photograph hardware & zipper", "Include interior tag or serial number"],
   Sneakers: ["Show the side profile", "Photograph the tongue label", "Include the sole / outsole"],
-  Watches: ["Show the dial face clearly", "Photograph the crown and case side", "Include the caseback if possible"],
-  Electronics: ["Show the model label / sticker", "Photograph the ports / connectors", "Include the serial number area"],
+  Watches: ["Show the dial face clearly", "Photograph the crown and case", "Include caseback if possible"],
+  Electronics: ["Show the model label", "Photograph the ports", "Include serial number area"],
   default: ["Show the brand logo clearly", "Use good lighting", "Avoid blurry or cropped images"],
 };
 
 // ── MAIN APP ───────────────────────────────────────────────
 export default function ShowBrand() {
   const [screen, setScreen] = useState("home");
-  const [image, setImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
-  const [analyzing, setAnalyzing] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [history, setHistory] = useState([]);
   const [error, setError] = useState(null);
   const [errorType, setErrorType] = useState(null);
-  const [feedback, setFeedback] = useState(null); // 'correct' | 'wrong' | 'unsure'
+  const [feedback, setFeedback] = useState(null);
   const fileRef = useRef();
 
-  // ── FILE PICK ──
   const handleFile = useCallback((file) => {
     if (!file) return;
     const supported = ["image/jpeg", "image/png", "image/webp", "image/gif"];
@@ -68,24 +86,20 @@ export default function ShowBrand() {
     reader.onload = (e) => {
       const dataUrl = e.target.result;
       const base64 = dataUrl.split(",")[1];
-      setImage(base64);
       setImagePreview(dataUrl);
       setScreen("scanning");
       setError(null);
       setErrorType(null);
       setFeedback(null);
-      runAnalysis(base64, mediaType);
+      runAnalysis(base64, mediaType, dataUrl);
     };
     reader.readAsDataURL(file);
   }, []);
 
-  // ── AI ANALYSIS ──
-  const runAnalysis = async (base64, mediaType = "image/jpeg") => {
-    setAnalyzing(true);
+  const runAnalysis = async (base64, mediaType, previewUrl) => {
     setScanProgress(0);
-
     const timer = setInterval(() => {
-      setScanProgress(p => (p >= 88 ? 88 : p + Math.random() * 12));
+      setScanProgress(p => p >= 88 ? 88 : p + Math.random() * 12);
     }, 400);
 
     try {
@@ -98,15 +112,10 @@ export default function ShowBrand() {
             model: "claude-sonnet-4-20250514",
             max_tokens: 1000,
             messages: [{
-              role: "user",
-              content: [
+              role: "user", content: [
+                { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
                 {
-                  type: "image",
-                  source: { type: "base64", media_type: mediaType, data: base64 }
-                },
-                {
-                  type: "text",
-                  text: `You are an expert product identifier specializing in luxury goods, sneakers, watches, electronics, and fashion.
+                  type: "text", text: `You are an expert product identifier specializing in luxury goods, sneakers, watches, electronics, and fashion.
 
 Analyze this image and respond ONLY with a JSON object (no markdown, no backticks):
 
@@ -128,15 +137,12 @@ Analyze this image and respond ONLY with a JSON object (no markdown, no backtick
 
 Important: authentic_verdict must be one of: Low Risk, Medium Risk, High Risk, Cannot Determine.
 If confidence is below 30, set all fields to Unknown and explain in authentic_reasons.
-If the image is unclear or not a product, still return valid JSON with Unknown values.`
-                }
+If the image is unclear or not a product, still return valid JSON with Unknown values.` }
               ]
             }]
           })
         });
-      } catch {
-        throw { type: "network" };
-      }
+      } catch { throw { type: "network" }; }
 
       if (!response.ok) {
         if (response.status === 429) throw { type: "rateLimit" };
@@ -151,20 +157,14 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       const raw = data.content?.find(b => b.type === "text")?.text || "";
 
       let parsed;
-      try {
-        const clean = raw.replace(/```json|```/g, "").trim();
-        parsed = JSON.parse(clean);
-      } catch {
-        throw { type: "parse" };
-      }
+      try { parsed = JSON.parse(raw.replace(/```json|```/g, "").trim()); }
+      catch { throw { type: "parse" }; }
 
-      if (!parsed.confidence || parsed.confidence < 30) {
-        throw { type: "lowConfidence" };
-      }
+      if (!parsed.confidence || parsed.confidence < 30) throw { type: "lowConfidence" };
 
       setResult(parsed);
-      setHistory(h => [{ ...parsed, imagePreview, id: Date.now() }, ...h.slice(0, 9)]);
-      await new Promise(r => setTimeout(r, 600));
+      setHistory(h => [{ ...parsed, imagePreview: previewUrl, id: Date.now() }, ...h.slice(0, 9)]);
+      await new Promise(r => setTimeout(r, 500));
       setScreen("result");
 
     } catch (err) {
@@ -173,359 +173,407 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
       setErrorType(type);
       setError(ERROR_MESSAGES[type] || ERROR_MESSAGES.unknown);
       setScreen("home");
-    } finally {
-      setAnalyzing(false);
     }
   };
 
-  // ── HOME ──
+  // ─────────────────────────────────────────────────────────
+  // HOME — Light & Modern
+  // ─────────────────────────────────────────────────────────
   if (screen === "home") return (
-    <Shell>
+    <div style={{ background: LIGHT.bg, minHeight: "100vh", maxWidth: 430, margin: "0 auto", fontFamily: "system-ui, -apple-system, sans-serif", color: LIGHT.text, overflowX: "hidden", position: "relative" }}>
       <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
         onChange={e => handleFile(e.target.files[0])} />
 
-      <div style={{ padding: "44px 24px 0", textAlign: "center" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: C.accentDim, border: `1px solid ${C.accent}44`, borderRadius: 30, padding: "6px 16px", marginBottom: 24 }}>
-          <span style={{ fontSize: 11, color: C.accent, fontWeight: 700, letterSpacing: 2 }}>AI POWERED</span>
+      {/* Top nav */}
+      <div style={{ padding: "52px 24px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: -0.5, color: LIGHT.text }}>
+            Show<span style={{ color: LIGHT.blue }}>Brand</span>
+          </div>
+          <div style={{ fontSize: 11, color: LIGHT.muted, fontWeight: 500, marginTop: 2 }}>AI Product Intelligence</div>
         </div>
-        <h1 style={{ fontSize: 36, fontWeight: 900, lineHeight: 1.1, margin: "0 0 6px", letterSpacing: -2 }}>
-          <span style={{ color: C.accent }}>Show</span>Brand
-        </h1>
-        <p style={{ fontSize: 15, fontWeight: 600, color: C.text, margin: "0 0 10px" }}>
-          Identify any item. Spot fakes instantly.
-        </p>
-        <p style={{ fontSize: 13, color: C.muted, lineHeight: 1.6, margin: 0 }}>
-          Got something lying around you can't identify?<br />Snap a photo — AI will find the brand and model.
+        {history.length > 0 && (
+          <button onClick={() => setScreen("history")} style={{ background: LIGHT.surface, border: `1px solid ${LIGHT.border}`, color: LIGHT.muted, borderRadius: 20, padding: "8px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+            🕐 {history.length}
+          </button>
+        )}
+      </div>
+
+      {/* Hero */}
+      <div style={{ padding: "32px 24px 24px" }}>
+        <h2 style={{ fontSize: 28, fontWeight: 800, lineHeight: 1.2, margin: "0 0 10px", letterSpacing: -0.5, color: LIGHT.text }}>
+          Identify any product.<br />
+          <span style={{ color: LIGHT.blue }}>Instantly.</span>
+        </h2>
+        <p style={{ fontSize: 14, color: LIGHT.muted, margin: 0, lineHeight: 1.6 }}>
+          Upload a photo — AI detects brand, model, and authenticity risk in seconds.
         </p>
       </div>
 
-      <div style={{ padding: "28px 24px" }}>
+      {/* Upload card */}
+      <div style={{ padding: "0 20px 20px" }}>
         <div onClick={() => fileRef.current.click()} style={{
-          background: `linear-gradient(145deg, ${C.card} 0%, #1E1A14 100%)`,
-          border: `1.5px dashed ${C.accent}66`,
-          borderRadius: 24, padding: "48px 20px",
+          background: LIGHT.surface,
+          border: `2px dashed ${LIGHT.blue}44`,
+          borderRadius: 24, padding: "40px 20px",
           textAlign: "center", cursor: "pointer",
+          boxShadow: "0 2px 20px #00000008",
           position: "relative", overflow: "hidden",
+          transition: "border-color 0.2s",
         }}>
-          {["topLeft", "topRight", "bottomLeft", "bottomRight"].map((pos) => (
-            <div key={pos} style={{
-              position: "absolute", width: 20, height: 20,
-              borderColor: C.accent, borderStyle: "solid",
-              borderWidth: pos.includes("top") ? "2px 0 0" : "0 0 2px",
-              ...(pos.includes("Left") ? { left: 16, borderLeftWidth: 2, borderRightWidth: 0 } : { right: 16, borderRightWidth: 2, borderLeftWidth: 0 }),
-              ...(pos.includes("top") ? { top: 16 } : { bottom: 16 }),
-            }} />
-          ))}
-          <div style={{ fontSize: 52, marginBottom: 14 }}>📸</div>
-          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>Upload a Photo</div>
-          <div style={{ fontSize: 13, color: C.muted }}>Bags, sneakers, watches, electronics & more</div>
-          <div style={{ marginTop: 20, display: "inline-block", background: C.accent, color: "#000", borderRadius: 30, padding: "11px 28px", fontSize: 14, fontWeight: 800 }}>
-            📷 Choose Photo
+          <div style={{ width: 64, height: 64, borderRadius: 20, background: LIGHT.blueDim, margin: "0 auto 16px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>
+            📷
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: LIGHT.text, marginBottom: 6 }}>Upload a Photo</div>
+          <div style={{ fontSize: 13, color: LIGHT.muted, marginBottom: 20 }}>JPG, PNG, WebP supported</div>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: LIGHT.blue, color: "#fff", borderRadius: 30, padding: "11px 28px", fontSize: 14, fontWeight: 700, boxShadow: `0 4px 16px ${LIGHT.blue}44` }}>
+            Choose Photo
           </div>
         </div>
       </div>
 
-      {/* Error Card */}
+      {/* Error */}
       {error && (
-        <div style={{ margin: "0 24px 20px", background: errorType === "lowConfidence" ? "#1A1500" : C.redDim, border: `1px solid ${errorType === "lowConfidence" ? C.amber : C.red}44`, borderRadius: 14, padding: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: errorType === "lowConfidence" ? C.amber : C.red, marginBottom: 6 }}>
+        <div style={{ margin: "0 20px 16px", background: errorType === "lowConfidence" ? "#FFFBEB" : "#FEF2F2", border: `1px solid ${errorType === "lowConfidence" ? "#FDE68A" : "#FECACA"}`, borderRadius: 14, padding: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: errorType === "lowConfidence" ? "#D97706" : "#DC2626", marginBottom: 4 }}>
             {errorType === "lowConfidence" ? "📷 Better photo needed" : "⚠️ Error"}
           </div>
-          <div style={{ fontSize: 13, color: C.text, lineHeight: 1.5 }}>{error}</div>
-          {errorType === "lowConfidence" && (
-            <div style={{ marginTop: 10, fontSize: 12, color: C.muted }}>
-              Tips: show the logo clearly · use good lighting · avoid blurry or cropped images
-            </div>
-          )}
+          <div style={{ fontSize: 12, color: LIGHT.text, lineHeight: 1.5 }}>{error}</div>
         </div>
       )}
 
-      <div style={{ padding: "0 24px 20px" }}>
-        <div style={{ fontSize: 12, color: C.muted, marginBottom: 12, fontWeight: 600, letterSpacing: 1 }}>SUPPORTED CATEGORIES</div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {SCAN_CATEGORIES.map(cat => (
-            <div key={cat.label} style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 20, padding: "7px 14px", fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
-              <span>{cat.icon}</span>
-              <span style={{ color: C.muted }}>{cat.label}</span>
+      {/* Traffic light legend */}
+      <div style={{ padding: "0 20px 20px" }}>
+        <div style={{ fontSize: 11, color: LIGHT.muted, fontWeight: 700, letterSpacing: 1.2, marginBottom: 12 }}>RISK SIGNAL</div>
+        <div style={{ background: LIGHT.surface, borderRadius: 18, padding: 16, border: `1px solid ${LIGHT.border}`, display: "flex", gap: 0 }}>
+          {[SIGNAL.green, SIGNAL.amber, SIGNAL.red].map((s, i) => (
+            <div key={i} style={{ flex: 1, textAlign: "center", borderRight: i < 2 ? `1px solid ${LIGHT.border}` : "none", padding: "0 8px" }}>
+              <div style={{ fontSize: 22, marginBottom: 4 }}>{s.emoji}</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: s.color }}>{s.label}</div>
             </div>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: "0 24px 16px" }}>
-        <div style={{ background: C.card, borderRadius: 18, padding: 20, border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14, color: C.accent }}>HOW IT WORKS</div>
+      {/* Categories */}
+      <div style={{ padding: "0 20px 20px" }}>
+        <div style={{ fontSize: 11, color: LIGHT.muted, fontWeight: 700, letterSpacing: 1.2, marginBottom: 12 }}>SUPPORTED</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+          {SCAN_CATEGORIES.map(cat => (
+            <div key={cat.label} style={{ background: LIGHT.surface, border: `1px solid ${LIGHT.border}`, borderRadius: 20, padding: "6px 14px", fontSize: 12, display: "flex", alignItems: "center", gap: 6, color: LIGHT.muted, fontWeight: 500 }}>
+              <span>{cat.icon}</span> {cat.label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div style={{ padding: "0 20px 120px" }}>
+        <div style={{ fontSize: 11, color: LIGHT.muted, fontWeight: 700, letterSpacing: 1.2, marginBottom: 12 }}>HOW IT WORKS</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {[
-            ["📸", "Upload a Photo", "Show the logo, tag, or full item clearly for best results"],
-            ["🤖", "AI Analysis", "Brand, model name, and year are identified automatically"],
-            ["✅", "Risk Assessment", "Visual risk signals are flagged — not professional authentication"],
-          ].map(([icon, title, desc]) => (
-            <div key={title} style={{ display: "flex", gap: 14, marginBottom: 14, alignItems: "flex-start" }}>
-              <div style={{ fontSize: 20, flexShrink: 0 }}>{icon}</div>
+            ["1", "Upload a photo", "Show the logo or tag clearly"],
+            ["2", "AI analyzes", "Brand, model & year identified"],
+            ["3", "Get signal", "🟢 🟡 🔴 risk level shown instantly"],
+          ].map(([num, title, desc]) => (
+            <div key={num} style={{ background: LIGHT.surface, border: `1px solid ${LIGHT.border}`, borderRadius: 14, padding: "14px 16px", display: "flex", gap: 14, alignItems: "center" }}>
+              <div style={{ width: 32, height: 32, borderRadius: 10, background: LIGHT.blueDim, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: LIGHT.blue, flexShrink: 0 }}>{num}</div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{title}</div>
-                <div style={{ fontSize: 12, color: C.muted, lineHeight: 1.5 }}>{desc}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: LIGHT.text }}>{title}</div>
+                <div style={{ fontSize: 12, color: LIGHT.muted, marginTop: 1 }}>{desc}</div>
               </div>
             </div>
           ))}
         </div>
       </div>
 
-      {history.length > 0 && (
-        <div style={{ padding: "0 24px 32px" }}>
-          <button onClick={() => setScreen("history")} style={{ width: "100%", background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 14, padding: 16, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-            <span>🕐</span> Scan History ({history.length})
-          </button>
-        </div>
-      )}
-    </Shell>
+      {/* Floating camera button */}
+      <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 100 }}>
+        <button onClick={() => fileRef.current.click()} style={{
+          width: 68, height: 68, borderRadius: "50%",
+          background: `linear-gradient(135deg, ${LIGHT.blue}, #1D4ED8)`,
+          border: "3px solid #ffffff",
+          boxShadow: `0 0 0 4px ${LIGHT.blue}33, 0 8px 28px ${LIGHT.blue}66`,
+          cursor: "pointer", display: "flex", alignItems: "center",
+          justifyContent: "center", fontSize: 26,
+        }}
+          onMouseDown={e => e.currentTarget.style.transform = "scale(0.92)"}
+          onMouseUp={e => e.currentTarget.style.transform = "scale(1)"}
+        >
+          📷
+        </button>
+      </div>
+    </div>
   );
 
-  // ── SCANNING ──
+  // ─────────────────────────────────────────────────────────
+  // SCANNING — Dark
+  // ─────────────────────────────────────────────────────────
   if (screen === "scanning") return (
-    <Shell>
-      <div style={{ padding: "60px 24px", display: "flex", flexDirection: "column", alignItems: "center", minHeight: "100vh", justifyContent: "center" }}>
+    <DarkShell>
+      <style>{`
+        @keyframes scanLine {
+          0%  { top:0%;  opacity:1; }
+          49% { opacity:1; }
+          50% { top:96%; opacity:0; }
+          51% { top:0%;  opacity:0; }
+          52% { opacity:1; }
+          100%{ top:96%; }
+        }
+        @keyframes pulse    { 0%,100%{opacity:1} 50%{opacity:0.25} }
+        @keyframes glowPulse{ 0%,100%{box-shadow:0 0 24px #3B82F644} 50%{box-shadow:0 0 48px #3B82F899} }
+      `}</style>
+
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "40px 24px" }}>
+
         {imagePreview && (
-          <div style={{ width: 200, height: 200, borderRadius: 24, overflow: "hidden", marginBottom: 32, border: `2px solid ${C.accent}66`, position: "relative" }}>
-            <img src={imagePreview} alt="scan" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${C.accent}, transparent)`, animation: "scanLine 1.5s ease-in-out infinite", boxShadow: `0 0 12px ${C.accent}` }} />
+          <div style={{ position: "relative", width: 210, height: 210, borderRadius: 24, overflow: "hidden", marginBottom: 36, border: `2px solid ${DARK.blue}88`, animation: "glowPulse 2s ease-in-out infinite" }}>
+            <img src={imagePreview} alt="scan" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "brightness(0.65) saturate(0.7)" }} />
+            <div style={{ position: "absolute", left: 0, right: 0, height: 2, top: 0, background: `linear-gradient(90deg,transparent,${DARK.blue},${DARK.blueBright},${DARK.blue},transparent)`, animation: "scanLine 1.8s linear infinite", boxShadow: `0 0 14px ${DARK.blue}` }} />
+            {[["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]].map(([v, h]) => (
+              <div key={v + h} style={{ position: "absolute", width: 18, height: 18, [v]: 10, [h]: 10, borderTop: v === "top" ? `2px solid ${DARK.blueBright}` : "none", borderBottom: v === "bottom" ? `2px solid ${DARK.blueBright}` : "none", borderLeft: h === "left" ? `2px solid ${DARK.blueBright}` : "none", borderRight: h === "right" ? `2px solid ${DARK.blueBright}` : "none" }} />
+            ))}
           </div>
         )}
-        <style>{`
-          @keyframes scanLine { 0% { top: 0%; } 50% { top: 98%; } 100% { top: 0%; } }
-          @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        `}</style>
-        <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: -1, marginBottom: 4 }}>
-          <span style={{ color: C.accent }}>Show</span>Brand
+
+        <div style={{ fontSize: 20, fontWeight: 900, color: DARK.white, marginBottom: 6 }}>
+          Show<span style={{ color: DARK.blue }}>Brand</span>
         </div>
-        <div style={{ fontSize: 13, color: C.accent, fontWeight: 700, letterSpacing: 2, marginBottom: 12, animation: "pulse 1.5s ease-in-out infinite" }}>
+        <div style={{ fontSize: 11, color: DARK.blue, fontWeight: 700, letterSpacing: 3, marginBottom: 28, animation: "pulse 1.5s ease-in-out infinite" }}>
           ANALYZING...
         </div>
-        <div style={{ width: "100%", maxWidth: 280, background: C.card, borderRadius: 20, height: 6, overflow: "hidden", marginBottom: 24 }}>
-          <div style={{ height: "100%", background: `linear-gradient(90deg, ${C.accent}, #E8C87A)`, borderRadius: 20, width: `${scanProgress}%`, transition: "width 0.4s ease" }} />
+
+        <div style={{ width: "100%", maxWidth: 260, background: DARK.card, borderRadius: 20, height: 4, overflow: "hidden", marginBottom: 28, border: `1px solid ${DARK.border}` }}>
+          <div style={{ height: "100%", background: `linear-gradient(90deg,${DARK.blue},${DARK.blueBright})`, borderRadius: 20, width: `${scanProgress}%`, transition: "width 0.4s ease", boxShadow: `0 0 8px ${DARK.blue}` }} />
         </div>
-        {[
-          [scanProgress > 10, "Recognizing brand logo"],
-          [scanProgress > 35, "Searching model database"],
-          [scanProgress > 60, "Checking authenticity markers"],
-          [scanProgress > 85, "Looking up resell market price"],
-        ].map(([done, label], i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, opacity: done ? 1 : 0.3, transition: "opacity 0.5s" }}>
-            <div style={{ width: 18, height: 18, borderRadius: 9, background: done ? C.green : C.card, border: `1px solid ${done ? C.green : C.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>
-              {done ? "✓" : ""}
+
+        <div style={{ width: "100%", maxWidth: 260, display: "flex", flexDirection: "column", gap: 12 }}>
+          {[
+            [scanProgress > 10, "Recognizing brand & logo"],
+            [scanProgress > 35, "Searching model database"],
+            [scanProgress > 60, "Checking authenticity signals"],
+            [scanProgress > 85, "Estimating market value"],
+          ].map(([done, label], i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, opacity: done ? 1 : 0.2, transition: "opacity 0.5s" }}>
+              <div style={{ width: 22, height: 22, borderRadius: "50%", background: done ? DARK.blue : DARK.card, border: `1.5px solid ${done ? DARK.blue : DARK.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: DARK.white, flexShrink: 0, boxShadow: done ? `0 0 10px ${DARK.blue}88` : "none" }}>
+                {done ? "✓" : i + 1}
+              </div>
+              <span style={{ fontSize: 13, color: done ? DARK.white : DARK.muted, fontWeight: done ? 600 : 400 }}>{label}</span>
             </div>
-            <span style={{ fontSize: 13, color: done ? C.text : C.muted }}>{label}</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </Shell>
+    </DarkShell>
   );
 
-  // ── RESULT ──
+  // ─────────────────────────────────────────────────────────
+  // RESULT — Dark + Traffic Light
+  // ─────────────────────────────────────────────────────────
   if (screen === "result" && result) {
-    const isAuthentic = result.authentic_score >= 65;
-    const isSuspicious = result.authentic_score < 40;
-    const verdictColor = isSuspicious ? C.red : isAuthentic ? C.green : C.amber;
-    const verdictBg = isSuspicious ? C.redDim : isAuthentic ? C.greenDim : "#FBBF2422";
+    const sig = getSignal(result.authentic_score, result.authentic_verdict);
     const confidencePct = result.confidence ?? 0;
-    const isLowConfidence = confidencePct >= 30 && confidencePct < 65;
+    const lowConf = confidencePct >= 30 && confidencePct < 65;
     const tips = PHOTO_TIPS[result.category] || PHOTO_TIPS.default;
 
     return (
-      <Shell>
+      <DarkShell>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
           onChange={e => handleFile(e.target.files[0])} />
-        <div style={{ padding: "0 0 40px" }}>
 
-          {/* Image + Verdict Header */}
-          <div style={{ position: "relative", height: 260, overflow: "hidden" }}>
-            {imagePreview && (
-              <img src={imagePreview} alt="result" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "brightness(0.45)" }} />
-            )}
-            <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, transparent 20%, #08080A 100%)" }} />
-            <button onClick={() => setScreen("home")} style={{ position: "absolute", top: 16, left: 16, background: "#00000066", border: "none", color: C.text, borderRadius: 20, padding: "8px 14px", cursor: "pointer", fontSize: 13 }}>
-              ← Scan Again
-            </button>
-            <div style={{ position: "absolute", top: 16, right: 16, background: verdictBg, border: `1px solid ${verdictColor}66`, borderRadius: 20, padding: "6px 14px" }}>
-              <span style={{ fontSize: 12, color: verdictColor, fontWeight: 700 }}>
-                {isSuspicious ? "⚠️ High Risk" : isAuthentic ? "✅ Low Risk" : "🔍 Cannot Determine"}
-              </span>
+        {/* Hero */}
+        <div style={{ position: "relative", height: 270, overflow: "hidden" }}>
+          {imagePreview && (
+            <img src={imagePreview} alt="result" style={{ width: "100%", height: "100%", objectFit: "cover", filter: "brightness(0.3) saturate(0.6)" }} />
+          )}
+          <div style={{ position: "absolute", inset: 0, background: `linear-gradient(to bottom, transparent 30%, ${DARK.bg} 100%)` }} />
+
+          <button onClick={() => setScreen("home")} style={{ position: "absolute", top: 16, left: 16, background: "#00000088", border: `1px solid ${DARK.border}`, color: DARK.text, borderRadius: 20, padding: "7px 14px", cursor: "pointer", fontSize: 12, backdropFilter: "blur(8px)" }}>
+            ← Back
+          </button>
+
+          {/* Traffic light badge */}
+          <div style={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 8, background: "#00000088", border: `1px solid ${sig.dot}55`, borderRadius: 20, padding: "7px 14px", backdropFilter: "blur(8px)" }}>
+            <div style={{ width: 10, height: 10, borderRadius: "50%", background: sig.dot, boxShadow: `0 0 8px ${sig.dot}` }} />
+            <span style={{ fontSize: 11, color: sig.dot, fontWeight: 700 }}>{sig.label}</span>
+          </div>
+
+          <div style={{ position: "absolute", bottom: 20, left: 20, right: 20 }}>
+            <div style={{ fontSize: 11, color: DARK.blue, fontWeight: 700, letterSpacing: 2, marginBottom: 4 }}>
+              {result.brand?.toUpperCase() || "UNKNOWN"}
             </div>
-            <div style={{ position: "absolute", bottom: 24, left: 24, right: 24 }}>
-              <div style={{ fontSize: 12, color: C.accent, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>
-                {result.brand?.toUpperCase() || "UNKNOWN BRAND"}
+            <div style={{ fontSize: 26, fontWeight: 900, color: DARK.white, lineHeight: 1.1, letterSpacing: -0.5 }}>
+              {result.model || "Unknown Model"}
+            </div>
+            {result.year && result.year !== "Unknown" && (
+              <div style={{ fontSize: 12, color: DARK.muted, marginTop: 4 }}>{result.year} · {result.category}</div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: "16px 16px 120px" }}>
+
+          {/* Traffic light card */}
+          <div style={{ background: DARK.card, border: `1px solid ${sig.dot}44`, borderRadius: 20, padding: 18, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              {/* Signal dots */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+                {[SIGNAL.green, SIGNAL.amber, SIGNAL.red].map((s, i) => (
+                  <div key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: s.dot === sig.dot ? s.dot : s.dot + "33", boxShadow: s.dot === sig.dot ? `0 0 10px ${s.dot}` : "none", transition: "all 0.3s" }} />
+                ))}
               </div>
-              <div style={{ fontSize: 24, fontWeight: 900, lineHeight: 1.15, letterSpacing: -0.5 }}>
-                {result.model || "Unknown Model"}
+              {/* Info */}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 11, color: DARK.muted, fontWeight: 600, marginBottom: 4 }}>AUTHENTICITY SIGNAL</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: sig.dot }}>{sig.emoji} {sig.label}</div>
+                <div style={{ fontSize: 12, color: DARK.muted, marginTop: 2 }}>Score: {result.authentic_score}/100</div>
               </div>
-              {result.year && result.year !== "Unknown" && (
-                <div style={{ fontSize: 13, color: C.muted, marginTop: 4 }}>
-                  {result.year} · {result.category}
-                </div>
-              )}
+              {/* Score ring */}
+              <div style={{ width: 52, height: 52, borderRadius: "50%", border: `3px solid ${sig.dot}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, boxShadow: `0 0 12px ${sig.dot}44` }}>
+                <span style={{ fontSize: 14, fontWeight: 900, color: sig.dot }}>{result.authentic_score}</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 10, color: DARK.muted, fontStyle: "italic", marginTop: 12, paddingTop: 12, borderTop: `1px solid ${DARK.border}` }}>
+              ⚠️ AI visual assessment only — not professional authentication
             </div>
           </div>
 
-          <div style={{ padding: "20px 20px 0" }}>
-
-            {/* AI Confidence */}
-            <div style={{ background: C.card, borderRadius: 18, padding: 18, border: `1px solid ${C.border}`, marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <span style={{ fontSize: 13, color: C.muted, fontWeight: 600 }}>AI Confidence</span>
-                <span style={{ fontSize: 18, fontWeight: 900, color: isLowConfidence ? C.amber : C.accent }}>{confidencePct}%</span>
-              </div>
-              <div style={{ background: C.surface, borderRadius: 20, height: 8, overflow: "hidden" }}>
-                <div style={{ height: "100%", background: isLowConfidence ? `linear-gradient(90deg, ${C.amber}, #F8C94A)` : `linear-gradient(90deg, ${C.accent}, #E8C87A)`, borderRadius: 20, width: `${confidencePct}%` }} />
-              </div>
+          {/* AI Confidence */}
+          <div style={{ background: DARK.card, borderRadius: 16, padding: 16, border: `1px solid ${DARK.border}`, marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: DARK.muted, fontWeight: 600 }}>AI Confidence</span>
+              <span style={{ fontSize: 20, fontWeight: 900, color: lowConf ? "#F59E0B" : DARK.blue }}>{confidencePct}%</span>
             </div>
-
-            {/* Low confidence — better photo suggestion */}
-            {isLowConfidence && (
-              <div style={{ background: "#1A1400", border: `1px solid ${C.amber}44`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: C.amber, marginBottom: 8 }}>
-                  📷 Better photo = better result
-                </div>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 8 }}>
-                  Confidence is low. Try uploading another photo:
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                  {tips.map((tip, i) => (
-                    <div key={i} style={{ fontSize: 12, color: C.text, display: "flex", gap: 8 }}>
-                      <span style={{ color: C.amber, flexShrink: 0 }}>→</span> {tip}
-                    </div>
-                  ))}
-                </div>
-                <button onClick={() => fileRef.current.click()} style={{ marginTop: 12, width: "100%", background: C.amber + "22", border: `1px solid ${C.amber}44`, color: C.amber, borderRadius: 10, padding: "10px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                  📸 Upload Better Photo
-                </button>
-              </div>
-            )}
-
-            {/* Stats Row */}
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
-              <InfoCard label="Retail Price" value={result.estimated_retail || "N/A"} color={C.text} />
-              <InfoCard label="Resell Value" value={result.estimated_resell || "N/A"} color={C.accent} />
+            <div style={{ background: DARK.surface, borderRadius: 20, height: 6, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: lowConf ? `linear-gradient(90deg,#F59E0B,#FCD34D)` : `linear-gradient(90deg,${DARK.blue},${DARK.blueBright})`, borderRadius: 20, width: `${confidencePct}%`, boxShadow: `0 0 6px ${lowConf ? "#F59E0B" : DARK.blue}88` }} />
             </div>
+          </div>
 
-            {/* Authenticity */}
-            <div style={{ background: verdictBg, border: `1px solid ${verdictColor}44`, borderRadius: 18, padding: 18, marginBottom: 14 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>Authenticity Risk</div>
-                <div style={{ fontSize: 20, fontWeight: 900, color: verdictColor }}>{result.authentic_score}/100</div>
+          {/* Low confidence tip */}
+          {lowConf && (
+            <div style={{ background: "#1C1500", border: "1px solid #F59E0B44", borderRadius: 14, padding: 14, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#F59E0B", marginBottom: 6 }}>📷 Better photo = better result</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+                {tips.map((tip, i) => (
+                  <div key={i} style={{ fontSize: 12, color: DARK.text, display: "flex", gap: 7 }}>
+                    <span style={{ color: "#F59E0B", flexShrink: 0 }}>→</span> {tip}
+                  </div>
+                ))}
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: verdictColor, marginBottom: 6 }}>
-                {result.authentic_verdict || "Cannot Determine"}
-              </div>
-              <div style={{ fontSize: 11, color: C.muted, marginBottom: 10, fontStyle: "italic" }}>
-                ⚠️ AI visual assessment only — not professional authentication
-              </div>
+              <button onClick={() => fileRef.current.click()} style={{ width: "100%", background: "#F59E0B22", border: "1px solid #F59E0B55", color: "#F59E0B", borderRadius: 10, padding: 10, fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                📸 Try Better Photo
+              </button>
+            </div>
+          )}
+
+          {/* Reasons */}
+          {(result.authentic_reasons || []).length > 0 && (
+            <div style={{ background: DARK.card, border: `1px solid ${DARK.border}`, borderRadius: 16, padding: 16, marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: DARK.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 10 }}>ANALYSIS</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                {(result.authentic_reasons || []).map((r, i) => (
-                  <div key={i} style={{ fontSize: 12, color: C.text, display: "flex", gap: 8, lineHeight: 1.5 }}>
-                    <span style={{ color: verdictColor, flexShrink: 0 }}>•</span> {r}
+                {result.authentic_reasons.map((r, i) => (
+                  <div key={i} style={{ fontSize: 12, color: DARK.text, display: "flex", gap: 8, lineHeight: 1.5 }}>
+                    <span style={{ color: sig.dot, flexShrink: 0 }}>•</span> {r}
                   </div>
                 ))}
               </div>
               {(result.suspicious_points || []).length > 0 && (
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, color: C.red, fontWeight: 700, marginBottom: 6 }}>⚠️ Red Flags</div>
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${DARK.border}` }}>
+                  <div style={{ fontSize: 10, color: "#EF4444", fontWeight: 700, marginBottom: 6 }}>⚠️ RED FLAGS</div>
                   {result.suspicious_points.map((p, i) => (
-                    <div key={i} style={{ fontSize: 12, color: C.muted, display: "flex", gap: 8, lineHeight: 1.5 }}>
-                      <span style={{ color: C.red, flexShrink: 0 }}>!</span> {p}
+                    <div key={i} style={{ fontSize: 12, color: DARK.muted, display: "flex", gap: 8, lineHeight: 1.5 }}>
+                      <span style={{ color: "#EF4444", flexShrink: 0 }}>!</span> {p}
                     </div>
                   ))}
                 </div>
               )}
             </div>
+          )}
 
-            {/* Condition */}
-            {result.condition_hints && (
-              <div style={{ background: C.card, borderRadius: 14, padding: 16, marginBottom: 14, border: `1px solid ${C.border}` }}>
-                <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Condition Assessment</div>
-                <div style={{ fontSize: 14 }}>{result.condition_hints}</div>
+          {/* Price */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+            <InfoCard label="RETAIL" value={result.estimated_retail || "N/A"} color={DARK.text} />
+            <InfoCard label="RESELL" value={result.estimated_resell || "N/A"} color={DARK.blueBright} />
+          </div>
+
+          {/* Condition */}
+          {result.condition_hints && (
+            <div style={{ background: DARK.card, borderRadius: 14, padding: 14, marginBottom: 12, border: `1px solid ${DARK.border}` }}>
+              <div style={{ fontSize: 10, color: DARK.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>CONDITION</div>
+              <div style={{ fontSize: 13, color: DARK.text }}>{result.condition_hints}</div>
+            </div>
+          )}
+
+          {/* Tip */}
+          {result.tips && (
+            <div style={{ background: "#0A1F0A", border: "1px solid #22C55E33", borderRadius: 14, padding: 14, marginBottom: 12 }}>
+              <div style={{ fontSize: 10, color: "#22C55E", fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>💡 SELLING TIP</div>
+              <div style={{ fontSize: 13, color: DARK.text, lineHeight: 1.6 }}>{result.tips}</div>
+            </div>
+          )}
+
+          {/* Feedback */}
+          <div style={{ background: DARK.card, border: `1px solid ${DARK.border}`, borderRadius: 14, padding: 14, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: DARK.muted, fontWeight: 600, marginBottom: 10, textAlign: "center" }}>Was this result accurate?</div>
+            {feedback ? (
+              <div style={{ textAlign: "center", fontSize: 13, padding: "6px 0" }}>
+                {feedback === "correct" && <span style={{ color: "#22C55E" }}>✅ Thanks for the feedback!</span>}
+                {feedback === "wrong" && <span style={{ color: "#EF4444" }}>❌ Thanks — we'll use this to improve.</span>}
+                {feedback === "unsure" && <span style={{ color: "#F59E0B" }}>🤔 Got it — noted for review.</span>}
+              </div>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                {[["correct", "✅ Correct", "#22C55E"], ["wrong", "❌ Wrong", "#EF4444"], ["unsure", "🤔 Unsure", "#F59E0B"]].map(([key, label, color]) => (
+                  <button key={key} onClick={() => setFeedback(key)} style={{ flex: 1, background: color + "18", border: `1px solid ${color}44`, color, borderRadius: 10, padding: "9px 4px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                    {label}
+                  </button>
+                ))}
               </div>
             )}
-
-            {/* Selling Tip */}
-            {result.tips && (
-              <div style={{ background: "#1A1F1A", border: `1px solid ${C.green}33`, borderRadius: 14, padding: 16, marginBottom: 14 }}>
-                <div style={{ fontSize: 12, color: C.green, fontWeight: 700, marginBottom: 4 }}>💡 Selling Tip</div>
-                <div style={{ fontSize: 13, color: C.text, lineHeight: 1.6 }}>{result.tips}</div>
-              </div>
-            )}
-
-            {/* ── USER FEEDBACK ── */}
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: 16, marginBottom: 20 }}>
-              <div style={{ fontSize: 12, color: C.muted, fontWeight: 600, marginBottom: 12, textAlign: "center" }}>
-                Was this result accurate?
-              </div>
-              {feedback ? (
-                <div style={{ textAlign: "center", fontSize: 13, color: C.muted, padding: "8px 0" }}>
-                  {feedback === "correct" && <span style={{ color: C.green }}>✅ Thanks for the feedback!</span>}
-                  {feedback === "wrong" && <span style={{ color: C.red }}>❌ Thanks — we'll use this to improve.</span>}
-                  {feedback === "unsure" && <span style={{ color: C.amber }}>🤔 Got it — noted for review.</span>}
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8 }}>
-                  {[
-                    { key: "correct", label: "✅ Correct", color: C.green },
-                    { key: "wrong", label: "❌ Wrong", color: C.red },
-                    { key: "unsure", label: "🤔 Unsure", color: C.amber },
-                  ].map(({ key, label, color }) => (
-                    <button
-                      key={key}
-                      onClick={() => setFeedback(key)}
-                      style={{ flex: 1, background: color + "18", border: `1px solid ${color}44`, color, borderRadius: 10, padding: "10px 4px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={() => fileRef.current.click()} style={{ flex: 1, background: C.accent, border: "none", color: "#000", borderRadius: 14, padding: 16, fontSize: 14, fontWeight: 800, cursor: "pointer" }}>
-                📸 Scan Another
-              </button>
-              <button onClick={() => setScreen("history")} style={{ flex: 1, background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 14, padding: 16, fontSize: 14, fontWeight: 600, cursor: "pointer" }}>
-                🕐 History
-              </button>
-            </div>
           </div>
         </div>
-      </Shell>
+
+        {/* Bottom bar */}
+        <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 430, padding: "12px 16px 28px", background: `linear-gradient(to top,${DARK.bg} 70%,transparent)`, display: "flex", gap: 10 }}>
+          <button onClick={() => setScreen("history")} style={{ flex: 1, background: DARK.card, border: `1px solid ${DARK.border}`, color: DARK.text, borderRadius: 14, padding: 14, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            🕐 History
+          </button>
+          <button onClick={() => fileRef.current.click()} style={{ flex: 2, background: `linear-gradient(135deg,${DARK.blue},#1D4ED8)`, border: "none", color: DARK.white, borderRadius: 14, padding: 14, fontSize: 14, fontWeight: 800, cursor: "pointer", boxShadow: `0 4px 16px ${DARK.blue}55` }}>
+            📷 Scan Another
+          </button>
+        </div>
+      </DarkShell>
     );
   }
 
-  // ── HISTORY ──
+  // ─────────────────────────────────────────────────────────
+  // HISTORY
+  // ─────────────────────────────────────────────────────────
   if (screen === "history") return (
-    <Shell>
-      <div style={{ padding: "50px 20px 40px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 24 }}>
-          <button onClick={() => setScreen("home")} style={{ background: C.card, border: `1px solid ${C.border}`, color: C.text, borderRadius: 20, padding: "8px 14px", cursor: "pointer", fontSize: 13 }}>←</button>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>Scan History</div>
+    <DarkShell>
+      <div style={{ padding: "52px 20px 40px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24 }}>
+          <button onClick={() => setScreen("home")} style={{ background: DARK.card, border: `1px solid ${DARK.border}`, color: DARK.text, borderRadius: 20, padding: "8px 14px", cursor: "pointer", fontSize: 13 }}>←</button>
+          <div style={{ fontSize: 18, fontWeight: 800, color: DARK.white }}>Scan History</div>
         </div>
         {history.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "60px 0", color: C.muted }}>No scans yet</div>
+          <div style={{ textAlign: "center", padding: "80px 0", color: DARK.muted }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+            <div>No scans yet</div>
+          </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {history.map(h => {
-              const ok = h.authentic_score >= 65;
-              const bad = h.authentic_score < 40;
-              const col = bad ? C.red : ok ? C.green : C.amber;
+              const s = getSignal(h.authentic_score, h.authentic_verdict);
               return (
-                <div key={h.id} style={{ background: C.card, borderRadius: 16, overflow: "hidden", border: `1px solid ${C.border}`, display: "flex" }}>
-                  {h.imagePreview && (
-                    <img src={h.imagePreview} alt="" style={{ width: 80, height: 80, objectFit: "cover", flexShrink: 0 }} />
-                  )}
-                  <div style={{ padding: "12px 16px", flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 11, color: C.accent, fontWeight: 700 }}>{h.brand}</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.model}</div>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <span style={{ fontSize: 11, color: col, background: col + "22", borderRadius: 10, padding: "2px 8px" }}>{h.authentic_verdict}</span>
-                      <span style={{ fontSize: 11, color: C.muted }}>{h.category}</span>
+                <div key={h.id} style={{ background: DARK.card, borderRadius: 16, overflow: "hidden", border: `1px solid ${DARK.border}`, display: "flex" }}>
+                  {h.imagePreview && <img src={h.imagePreview} alt="" style={{ width: 72, height: 72, objectFit: "cover", flexShrink: 0 }} />}
+                  <div style={{ padding: "12px 14px", flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 10, color: DARK.blue, fontWeight: 700, letterSpacing: 1 }}>{h.brand?.toUpperCase()}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: DARK.white, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.model}</div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                      <div style={{ width: 8, height: 8, borderRadius: "50%", background: s.dot, boxShadow: `0 0 6px ${s.dot}` }} />
+                      <span style={{ fontSize: 10, color: s.dot, fontWeight: 700 }}>{s.label}</span>
+                      <span style={{ fontSize: 10, color: DARK.muted }}>· {h.category}</span>
                     </div>
                   </div>
                 </div>
@@ -534,19 +582,15 @@ If the image is unclear or not a product, still return valid JSON with Unknown v
           </div>
         )}
       </div>
-    </Shell>
+    </DarkShell>
   );
 
   return null;
 }
 
-function Shell({ children }) {
+function DarkShell({ children }) {
   return (
-    <div style={{
-      background: C.bg, minHeight: "100vh", maxWidth: 430, margin: "0 auto",
-      fontFamily: "'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif",
-      color: C.text, overflowX: "hidden", position: "relative",
-    }}>
+    <div style={{ background: DARK.bg, minHeight: "100vh", maxWidth: 430, margin: "0 auto", fontFamily: "system-ui,-apple-system,sans-serif", color: DARK.text, overflowX: "hidden", position: "relative" }}>
       {children}
     </div>
   );
@@ -554,9 +598,9 @@ function Shell({ children }) {
 
 function InfoCard({ label, value, color }) {
   return (
-    <div style={{ background: C.card, borderRadius: 14, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-      <div style={{ fontSize: 11, color: C.muted, marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 800, color }}>{value}</div>
+    <div style={{ background: DARK.card, borderRadius: 14, padding: "14px", border: `1px solid ${DARK.border}` }}>
+      <div style={{ fontSize: 10, color: DARK.muted, fontWeight: 700, letterSpacing: 1, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 800, color }}>{value}</div>
     </div>
   );
 }
