@@ -1,77 +1,97 @@
-# 🔄 Workflow
+# 🔄 ShowBrand — User Workflow
 
-## User Flow
+## Overview
 
 ```
-1. Open ShowBrand
-        ↓
-2. Home Screen
-   - Upload zone (tap to select photo)
-   - Supported categories:
-     Bags · Sneakers · Watches · Electronics · Clothing · Other
-        ↓
-3. Select a product photo
-        ↓
-4. Scanning Screen
-   - Progress bar animates
-   - Steps displayed:
-     "Recognizing brand logo..."
-     "Checking authenticity markers..."
-     "Estimating market value..."
-        ↓
-5. Result Screen
-   ┌─────────────────────────┐
-   │ BRAND NAME              │
-   │ Model · Year · Category │
-   ├─────────────────────────┤
-   │ AI Confidence     87%   │
-   ├─────────────────────────┤
-   │ Retail Price    $1,200  │
-   │ Resell Value    $980    │
-   ├─────────────────────────┤
-   │ Authenticity Risk       │
-   │ Score + Verdict         │
-   │ Reasons listed          │
-   │ Red flags (if any)      │
-   ├─────────────────────────┤
-   │ Condition Assessment    │
-   │ Selling Tip             │
-   └─────────────────────────┘
-        ↓
-6. User Actions
-   - 📸 Scan Another
-   - 🕐 View History
+Home → Select Photos → Scanning → Result → History
 ```
 
 ---
 
-## Screen Map
+## Screen 1: Home (Light Mode)
 
-| Screen | Trigger | Key Elements |
-|--------|---------|-------------|
-| Home | App launch | Upload zone, category grid |
-| Scanning | File selected | Progress bar, step labels |
-| Result | Analysis complete | Full analysis card |
-| History | Tap "History" | Last 10 scans with thumbnail |
+**Trigger:** App launch
+
+**Elements:**
+- ShowBrand logo + "AI Product Intelligence"
+- Hero text: "Identify any product. Instantly."
+- Upload zone (tap to select 1–3 photos)
+- Multi-photo guide: 1st logo / 2nd detail / 3rd serial
+- Risk signal legend: 🟢 Low / 🟡 Medium / 🔴 High
+- Supported categories: Bags, Sneakers, Watches, Electronics, Clothing, Other
+- How it works: 3-step guide
+- Floating camera button (bottom center)
+- History button (top right, shown if history exists)
+
+---
+
+## Screen 2: Scanning (Dark Mode)
+
+**Trigger:** Photos selected
+
+**Elements:**
+- Selected photos displayed side by side (1–3)
+- Scan line animation on first photo
+- "Analyzing X photos..." label
+- Progress bar (0 → 100%)
+- Step indicators:
+  1. Recognizing brand & logo
+  2. Searching model database
+  3. Checking authenticity signals
+  4. Estimating market value
+
+---
+
+## Screen 3: Result (Dark Mode)
+
+**Trigger:** AI analysis complete
+
+**Elements:**
+- Hero image (first photo, darkened)
+- Brand name + model + year + category
+- Traffic light badge (top right)
+- Photo thumbnail strip (if 2+ photos)
+- "X photos analyzed" badge
+- Authenticity Signal card (traffic light + score ring)
+- AI Confidence bar
+- Low-confidence photo tips (if confidence 30–65%)
+- Analysis reasons
+- Red flags (if any)
+- Retail + Resell price cards
+- Condition assessment
+- Selling tip
+- User feedback: ✅ Correct / ❌ Wrong / 🤔 Unsure
+- Bottom bar: History + Scan Another
+
+---
+
+## Screen 4: History (Dark Mode)
+
+**Trigger:** Tap "History"
+
+**Elements:**
+- List of past scans (max 20, persisted in localStorage)
+- Each item: thumbnail + brand + model + signal dot + category
+- Photos used indicator (📷×2 if multi-photo)
+- Clear button (with confirmation)
+
+---
+
+## Risk Signal System
+
+| Signal | Score | Meaning |
+|--------|-------|---------|
+| 🟢 LOW RISK | 65–100 | Visual indicators consistent with authentic product |
+| 🟡 MEDIUM RISK | 40–64 | Some uncertainty — professional check recommended |
+| 🔴 HIGH RISK | 0–39 | Visual red flags detected |
+| ⚪ UNCLEAR | — | Cannot determine from available photos |
 
 ---
 
 ## UX Principles
 
-- **Luxury feel** — dark background, gold accents
-- **Mobile-first** — max width 430px
-- **Fast feedback** — animation during API call
-- **Transparent uncertainty** — confidence % always shown
-
----
-
-## Planned UX Improvements
-
-| Current | Planned |
-|---------|---------|
-| "Likely Fake" | "High Authenticity Risk" |
-| "Likely Authentic" | "Low Authenticity Risk" |
-| No disclaimer | "AI Visual Assessment Only" card |
-| No quality check | Image quality indicator |
-| No feedback | ✅ Correct / ❌ Wrong / 🤔 Unsure buttons |
-| No suggestion | "Upload a better photo" prompt |
+- **Home = light** — welcoming, clean, easy to scan
+- **Scan/Result = dark** — focused, technical, premium feel
+- **Always show uncertainty** — confidence % never hidden
+- **Risk not verdict** — "High Risk" not "Fake"
+- **Disclaimer always visible** — "AI visual assessment only"

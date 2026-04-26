@@ -1,7 +1,8 @@
 # 🏷️ ShowBrand
 
 > AI-powered product identification and authenticity risk analysis.
-> Upload a photo — instantly know the brand, model, value, and visual risk signals.
+
+**Live:** [show-brand-product.vercel.app](https://show-brand-product.vercel.app)
 
 ---
 
@@ -11,40 +12,83 @@ ShowBrand lets users photograph any fashion or luxury item and receive instant A
 
 - 🔍 Brand & model identification
 - 📊 AI confidence score
-- 🛡️ Authenticity risk assessment
+- 🟢🟡🔴 Traffic light authenticity risk signal
 - 💰 Retail & resale price estimate
-- 📸 Condition assessment
-- 💡 Selling tips
+- 📸 Multi-photo upload (up to 3 photos)
+- 💾 Persistent scan history
 
 > ⚠️ ShowBrand provides AI-based visual risk assessment only.
-> It is not a professional authentication service.
+> Not a professional authentication service.
 
 ---
 
-## Demo
+## Feature History
 
-> Screenshots / demo video coming soon.
+| Version | Feature |
+|---------|---------|
+| v0.1 | MVP — single photo upload, AI analysis, result screen |
+| v0.2 | Bug fixes — media type, error handling, risk-based language |
+| v0.3 | Traffic light system 🟢🟡🔴, light home + dark result UI |
+| v0.4 | Next.js backend — API key secured in server |
+| v0.5 | localStorage history persistence (max 20 scans) |
+| v0.6 | Multi-photo upload (up to 3 photos simultaneously) |
+| v0.7 | Vercel deployment + PWA (installable on mobile) |
 
 ---
 
-## Current Features
+## User Workflow
 
-| Feature | Status |
-|---------|--------|
-| Image upload | ✅ Done |
-| AI brand & model identification | ✅ Done |
-| Confidence score | ✅ Done |
-| Authenticity risk verdict | ✅ Done |
-| Price estimate (retail + resell) | ✅ Done |
-| Condition & selling tip | ✅ Done |
-| Scan history (session) | ✅ Done |
-| Media type fix (PNG/WebP) | 🔲 In progress |
-| Risk-based wording | 🔲 In progress |
-| Legal disclaimer UI | 🔲 In progress |
-| Backend / API security | 🔲 Planned |
-| Persistent history (localStorage) | 🔲 Planned |
-| User feedback (correct / wrong) | 🔲 Planned |
-| Mobile PWA | 🔲 Planned |
+```
+1. Open ShowBrand (web or installed PWA)
+        ↓
+2. Home Screen (Light mode)
+   - Upload zone
+   - Risk signal legend 🟢🟡🔴
+   - Supported categories
+        ↓
+3. Select 1–3 product photos
+        ↓
+4. Scanning Screen (Dark mode)
+   - Photos displayed side by side
+   - Progress bar + step indicators
+        ↓
+5. Result Screen (Dark mode)
+   - Brand / Model / Year / Category
+   - Traffic light signal
+   - AI Confidence %
+   - Retail + Resell price
+   - Analysis reasons
+   - Red flags (if any)
+   - Condition assessment
+   - Selling tip
+   - User feedback buttons
+        ↓
+6. History (persistent across sessions)
+```
+
+---
+
+## Technical Pipeline
+
+```
+[User] Selects 1–3 photos
+        ↓
+[Frontend] Converts images to base64
+        ↓
+[Frontend] POST /api/analyze → { images: [{base64, mediaType}] }
+        ↓
+[Backend] app/api/analyze/route.js
+   → Reads ANTHROPIC_API_KEY from environment
+   → Sends all images + prompt to Claude API
+   → Parses JSON response
+   → Returns structured result
+        ↓
+[Frontend] Displays result
+   → Traffic light signal
+   → Confidence bar
+   → Analysis cards
+   → Saves to localStorage
+```
 
 ---
 
@@ -52,60 +96,45 @@ ShowBrand lets users photograph any fashion or luxury item and receive instant A
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | React (JSX) |
-| AI | Anthropic Claude (Vision API) |
+| Frontend | React (Next.js App Router) |
+| Backend | Next.js API Routes |
+| AI Model | Anthropic Claude (Vision) |
 | Styling | Inline CSS with design tokens |
-| Storage (current) | React state (session only) |
-| Storage (planned) | localStorage → Supabase |
-| Backend (planned) | FastAPI or Next.js API routes |
+| Storage | localStorage (client-side) |
+| Deployment | Vercel |
 
 ---
 
-## Folder Structure
+## Project Structure
 
 ```
-showbrand/
-├── README.md
-├── frontend/
-│   └── ai-identifier.jsx       # Main React component (MVP)
-├── backend/                    # Planned — API routes, env handling
-├── assets/
-│   └── screenshots/            # UI screenshots
-└── logs/
-    └── CHANGELOG.md            # Product development log
+ShowBrand-Product/
+├── app/
+│   ├── api/
+│   │   └── analyze/
+│   │       └── route.js      ← Backend API route
+│   ├── page.tsx               ← Main app (all screens)
+│   ├── layout.tsx             ← PWA metadata
+│   └── globals.css
+├── public/
+│   ├── manifest.json          ← PWA manifest
+│   ├── icon-192.png           ← PWA icon
+│   └── icon-512.png           ← PWA icon
+├── docs/
+│   ├── workflow.md            ← User workflow detail
+│   ├── pipeline.md            ← Technical pipeline detail
+│   └── TODO.md                ← Current to-do list
+├── logs/
+│   └── CHANGELOG.md           ← Development log
+├── next.config.ts
+├── package.json
+└── README.md
 ```
 
 ---
 
-## Roadmap
+## Related
 
-### MVP 1 — Current
-- Upload image → AI identifies brand/model/category → show result
-
-### MVP 2 — Next
-- Fix media type handling
-- Risk-based authenticity wording
-- Disclaimer UI
-- User feedback buttons
-
-### MVP 3
-- Backend API (hide API key)
-- Persistent scan history
-- Image quality indicator
-
-### MVP 4
-- Marketplace price integration
-- Multi-photo authentication flow
-- Mobile PWA or app
-
----
-
-## Development Log
-
-See [`logs/CHANGELOG.md`](logs/CHANGELOG.md) for full update history.
-
----
-
-## License
-
-Private project — Woosik Kim, 2026.
+- **Research repo:** [ShowBrand-Research](https://github.com/woosik-study/ShowBrand-Rsearch)
+- **Research title:** Reliability and Uncertainty in AI-Driven Product Recognition Systems
+- **Faculty mentor:** Prof. Pengtao Xie (ECE, UCSD)
