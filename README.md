@@ -2,7 +2,9 @@
 
 > AI-powered product identification and authenticity risk analysis.
 
-**Live:** [show-brand-product.vercel.app](https://show-brand-product.vercel.app)
+**Live:** [show-brand-product.vercel.app](show-brand-product-k111y6ey2-woosik-studys-projects.vercel.app
+
+)
 
 ---
 
